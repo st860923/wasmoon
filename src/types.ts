@@ -46,11 +46,13 @@ export enum LuaType {
     Boolean = 1,
     LightUserdata = 2,
     Number = 3,
-    String = 4,
-    Table = 5,
-    Function = 6,
-    Userdata = 7,
-    Thread = 8,
+    Vector = 4,
+    String = 5,
+    Table = 6,
+    Function = 7,
+    Userdata = 8,
+    Thread = 9,
+    Matrix = 10,
 }
 
 export enum LuaEventCodes {
