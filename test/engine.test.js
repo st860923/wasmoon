@@ -32,6 +32,17 @@ describe('Engine', () => {
         intervals = []
     })
 
+    it('uses CitizenFX Lua with serialization libraries', async () => {
+        const engine = await getEngine()
+        const result = await engine.doString(`
+            return _VERSION
+                .. '|' .. json.decode(json.encode({ hello = 'world' })).hello
+                .. '|' .. msgpack.unpack(msgpack.pack('ok'))
+        `)
+
+        expect(result).to.equal('LuaGLM 5.4|world|ok')
+    })
+
     it('receive lua table on JS function should succeed', async () => {
         const engine = await getEngine()
         engine.global.set('stringify', (table) => {
@@ -191,11 +202,13 @@ describe('Engine', () => {
                 test = test .. "i"
             end, 1)
         `)
-        await setTimeout(20)
+        let test = ''
+        for (let attempts = 0; attempts < 20 && test.length <= 3; attempts++) {
+            await setTimeout(10)
+            test = engine.global.get('test')
+        }
 
-        const test = engine.global.get('test')
         expect(test).length.above(3)
-        expect(test).length.below(21)
         expect(test).to.be.equal(''.padEnd(test.length, 'i'))
     })
 

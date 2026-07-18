@@ -53,6 +53,7 @@ export default class LuaEngine {
 
         if (openStandardLibs) {
             this.cmodule.luaL_openlibs(this.global.address)
+            this.cmodule.luaL_openfxlibs(this.global.address)
         }
     }
 

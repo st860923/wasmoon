@@ -86,6 +86,7 @@ export default class LuaWasm {
     public luaL_pushresult: (B: number | null) => void
     public luaL_pushresultsize: (B: number | null, sz: number) => void
     public luaL_buffinitsize: (L: LuaState, B: number | null, sz: number) => string
+    public luaL_openfxlibs: (L: LuaState) => void
     public lua_newstate: (f: number | null, ud: number | null) => LuaState
     public lua_close: (L: LuaState) => void
     public lua_newthread: (L: LuaState) => LuaState
@@ -243,6 +244,7 @@ export default class LuaWasm {
         this.luaL_pushresult = this.cwrap('luaL_pushresult', null, ['number'])
         this.luaL_pushresultsize = this.cwrap('luaL_pushresultsize', null, ['number', 'number'])
         this.luaL_buffinitsize = this.cwrap('luaL_buffinitsize', 'string', ['number', 'number', 'number'])
+        this.luaL_openfxlibs = this.cwrap('luaL_openfxlibs', null, ['number'])
         this.lua_newstate = this.cwrap('lua_newstate', 'number', ['number', 'number'])
         this.lua_close = this.cwrap('lua_close', null, ['number'])
         this.lua_newthread = this.cwrap('lua_newthread', 'number', ['number'])

@@ -6,7 +6,7 @@ import tseslint from 'typescript-eslint'
 
 export default [
     {
-        ignores: ['**/dist/*', '**/build/*', '**/rolldown.config.ts', '**/utils/*', 'eslint.config.js'],
+        ignores: ['**/dist/*', '**/build/*', 'lua/**', 'vendor/**', '**/rolldown.config.ts', '**/utils/*', 'eslint.config.js'],
     },
     eslint.configs.recommended,
     ...tseslint.configs.recommended,

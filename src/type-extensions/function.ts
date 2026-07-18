@@ -119,8 +119,13 @@ class FunctionTypeExtension extends TypeExtension<FunctionType, FunctionDecorati
                     return 1
                 }
             } catch (err) {
-                // Performs a longjmp
-                if (err === Infinity) {
+                // Let Lua's Emscripten longjmp/C++ exception return to Lua.
+                const WasmException = (WebAssembly as unknown as { Exception?: new (...args: never[]) => object }).Exception
+                if (
+                    err === Infinity ||
+                    (err && typeof err === 'object' && 'excPtr' in err) ||
+                    (WasmException && err instanceof WasmException)
+                ) {
                     throw err
                 }
                 calledThread.pushValue(err)

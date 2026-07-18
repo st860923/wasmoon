@@ -1,8 +1,24 @@
 #!/bin/bash -e
 cd $(dirname $0)
 mkdir -p build
+mkdir -p build/include/msgpack
 
-LUA_SRC=$(ls ./lua/*.c | grep -v "luac.c" | grep -v "lua.c" | tr "\n" " ")
+sed -e 's/@MSGPACK_ENDIAN_BIG_BYTE@/0/g' -e 's/@MSGPACK_ENDIAN_LITTLE_BYTE@/1/g' \
+    ./vendor/msgpack-c/cmake/sysdep.h.in > ./build/include/msgpack/sysdep.h
+sed -e 's/@MSGPACK_ENDIAN_BIG_BYTE@/0/g' -e 's/@MSGPACK_ENDIAN_LITTLE_BYTE@/1/g' \
+    ./vendor/msgpack-c/cmake/pack_template.h.in > ./build/include/msgpack/pack_template.h
+
+LUA_SRC="
+    ./lua/onelua.c
+    ./lua-packages.cpp
+    ./vendor/lua-cmsgpack/src/lua_cmsgpack.c
+    ./vendor/lua-rapidjson/src/lua_rapidjson.cpp
+    ./vendor/msgpack-c/src/objectc.c
+    ./vendor/msgpack-c/src/unpack.c
+    ./vendor/msgpack-c/src/version.c
+    ./vendor/msgpack-c/src/vrefbuffer.c
+    ./vendor/msgpack-c/src/zone.c
+"
 
 extension=""
 if [ "$1" == "dev" ];
@@ -12,7 +28,47 @@ else
     extension="-O3"
 fi
 
-emcc \
+em++ \
+    -x c++ \
+    -std=c++14 \
+    -fwasm-exceptions \
+    -include ./lua-c-api.hpp \
+    -I./lua \
+    -I./lua/libs/glm \
+    -I./lua/libs/glm-binding \
+    -I./vendor/lua-cmsgpack/src \
+    -I./vendor/lua-rapidjson/src \
+    -I./vendor/msgpack-c/include \
+    -I./vendor/rapidjson/include \
+    -I./build/include \
+    -I./build/include/msgpack \
+    -DMAKE_LIB \
+    -DLUA_COMPAT_5_3 \
+    -DLUA_C99_MATHLIB \
+    -DGRIT_POWER_COMPOUND \
+    -DGRIT_POWER_INTABLE \
+    -DGRIT_POWER_TABINIT \
+    -DGRIT_POWER_SAFENAV \
+    -DGRIT_POWER_CCOMMENT \
+    -DGRIT_POWER_DEFER_OLD \
+    -DGRIT_POWER_JOAAT \
+    -DGRIT_POWER_EACH \
+    -DGRIT_POWER_WOW \
+    -DGRIT_COMPAT_IPAIRS \
+    -DGRIT_POWER_BLOB \
+    -DGLM_ENABLE_EXPERIMENTAL \
+    -DGLM_FORCE_INLINE \
+    -DGLM_FORCE_Z_UP \
+    -DLUA_GLM_INCLUDE_ALL \
+    -DLUA_GLM_ALIASES \
+    -DLUA_GLM_GEOM_EXTENSIONS \
+    -DLUA_GLM_RECYCLE \
+    -DLUA_INCLUDE_LIBGLM \
+    -DLUA_COMPILED_AS_HPP \
+    -DLUA_MSGPACK_COMPAT \
+    -D__WINDOWS__ \
+    -DLUA_RAPIDJSON_SANITIZE_KEYS \
+    -DLUA_RAPIDJSON_ALLOCATOR \
     -s WASM=1 $extension -o ./build/glue.js \
     -s EXPORTED_RUNTIME_METHODS="[
         'ccall', \
@@ -37,8 +93,6 @@ emcc \
     -s ALLOW_MEMORY_GROWTH=1 \
     -s STRICT=1 \
     -s EXPORT_ES6=1 \
-    -s NODEJS_CATCH_EXIT=0 \
-    -s NODEJS_CATCH_REJECTION=0 \
     -s MALLOC=emmalloc \
     -s STACK_SIZE=1MB \
     -s WASM_BIGINT \
@@ -193,6 +247,7 @@ emcc \
         '_luaopen_math', \
         '_luaopen_debug', \
         '_luaopen_package', \
+        '_luaL_openfxlibs', \
         '_luaL_openlibs' \
     ]" \
     ${LUA_SRC}
