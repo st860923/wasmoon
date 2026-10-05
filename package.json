@@ -10,7 +10,7 @@
         "build:wasm:docker:dev": "docker run --rm -v \"$(pwd):/wasmoon\" emscripten/emsdk:$(cat .emscripten-version) /wasmoon/build.sh dev",
         "build:wasm:docker": "docker run --rm -v \"$(pwd):/wasmoon\" emscripten/emsdk:$(cat .emscripten-version) /wasmoon/build.sh",
         "start": "rolldown -w -c",
-        "test": "mocha --parallel --require ./test/boot.js test/*.test.js",
+        "test": "mocha --require ./test/boot.js test/*.test.js",
         "luatests": "node --experimental-import-meta-resolve test/luatests.js",
         "build": "rolldown -c && tsc -d --emitDeclarationOnly --rootDir src --declarationDir dist",
         "clean": "rm -rf dist build",
