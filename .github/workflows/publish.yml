@@ -1,11 +1,25 @@
-name: CI
+name: npm publication
 
 on:
-    push:
+    workflow_dispatch:
+        inputs:
+            dry_run:
+                description: Validate the package without publishing it to npm
+                type: boolean
+                required: true
+                default: true
+    pull_request:
         branches: [main]
+        paths:
+            - .github/workflows/publish.yml
+            - .github/scripts/**
 
 permissions:
     contents: read
+
+concurrency:
+    group: npm-publication-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: false
 
 jobs:
     publish:
@@ -17,6 +31,11 @@ jobs:
               with:
                   submodules: recursive
                   persist-credentials: false
+            - name: Check publication prerequisites
+              env:
+                  DRY_RUN: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run }}
+                  NPM_TOKEN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == false && secrets.NPM_TOKEN || '' }}
+              run: python3 .github/scripts/check_publish.py
             - name: Read pinned Emscripten version
               id: emsdk
               run: echo "version=$(cat .emscripten-version)" >> "$GITHUB_OUTPUT"
@@ -28,6 +47,7 @@ jobs:
               with:
                   node-version: 22.x
                   cache: npm
+                  registry-url: https://registry.npmjs.org
             - run: npm ci
             - run: npm run lint:nofix
             - run: npm run build:wasm
@@ -35,6 +55,25 @@ jobs:
             - run: npm test
             - run: npm run luatests
             - run: npm audit
-            - uses: JS-DevTools/npm-publish@v3
+            - name: Pack the tested production build
+              run: |
+                  mkdir -p "$RUNNER_TEMP/npm-package"
+                  npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/npm-package"
+            - name: Validate publication without uploading to npm
+              if: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run }}
+              run: |
+                  npm publish "$RUNNER_TEMP"/npm-package/*.tgz --dry-run --ignore-scripts --access public --registry https://registry.npmjs.org
+                  echo 'Dry run completed. No package was published to npm.' >> "$GITHUB_STEP_SUMMARY"
+            - name: Publish the tested package to npm
+              if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == false }}
+              env:
+                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+              run: |
+                  npm publish "$RUNNER_TEMP"/npm-package/*.tgz --ignore-scripts --access public --registry https://registry.npmjs.org
+                  echo 'npm publication completed successfully.' >> "$GITHUB_STEP_SUMMARY"
+            - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
-                  token: ${{ secrets.NPM_TOKEN }}
+                  name: npm-package-${{ github.run_id }}
+                  path: ${{ runner.temp }}/npm-package/*.tgz
+                  if-no-files-found: error
+                  retention-days: 7
