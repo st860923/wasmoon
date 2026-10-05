@@ -213,7 +213,9 @@ describe('CfxLua runtime contract', () => {
     it('handles malformed JSON and MessagePack without aborting the VM', async () => {
         // lua-rapidjson returns nil, error offset, error message; it does not throw.
         assert.equal(
-            await engine.doString('local value, offset, err = json.decode("{"); return value == nil and offset == 1 and type(err) == "string"'),
+            await engine.doString(
+                'local value, offset, err = json.decode("{"); return value == nil and offset == 1 and type(err) == "string"',
+            ),
             true,
         )
         assert.equal(await engine.doString('return pcall(msgpack.unpack, string.char(0xc1))'), false)
