@@ -1,5 +1,5 @@
 #!/bin/bash -e
-cd $(dirname $0)
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 mkdir -p build
 mkdir -p build/include/msgpack
 
@@ -11,6 +11,7 @@ sed -e 's/@MSGPACK_ENDIAN_BIG_BYTE@/0/g' -e 's/@MSGPACK_ENDIAN_LITTLE_BYTE@/1/g'
 LUA_SRC="
     ./lua/onelua.c
     ./lua-packages.cpp
+    ./lua-vector.cpp
     ./vendor/lua-cmsgpack/src/lua_cmsgpack.c
     ./vendor/lua-rapidjson/src/lua_rapidjson.cpp
     ./vendor/msgpack-c/src/objectc.c
@@ -65,7 +66,7 @@ em++ \
     -DLUA_GLM_RECYCLE \
     -DLUA_INCLUDE_LIBGLM \
     -DLUA_COMPILED_AS_HPP \
-    -DLUA_MSGPACK_COMPAT \
+    -DLUACMSGPACK_COMPAT \
     -D__WINDOWS__ \
     -DLUA_RAPIDJSON_SANITIZE_KEYS \
     -DLUA_RAPIDJSON_ALLOCATOR \
@@ -80,7 +81,7 @@ em++ \
         'setValue', \
         'lengthBytesUTF8', \
         'stringToUTF8', \
-        'stringToNewUTF8'
+        'stringToNewUTF8', 'HEAPU8'
     ]" \
     -s INCOMING_MODULE_JS_API="[
         'locateFile', \
@@ -146,7 +147,11 @@ em++ \
         '_lua_newstate', \
         '_lua_close', \
         '_lua_newthread', \
-        '_lua_resetthread', \
+        '_lua_resetthread',
+        '_lua_closethread',
+        '_wasmoon_runtime_abi',
+        '_wasmoon_getvector',
+        '_wasmoon_pushvector', \
         '_lua_atpanic', \
         '_lua_version', \
         '_lua_absindex', \

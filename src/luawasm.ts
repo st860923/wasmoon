@@ -8,7 +8,7 @@ interface LuaEmscriptenModule extends EmscriptenModule {
     setValue: typeof setValue
     getValue: typeof getValue
     FS: typeof FS
-    stringToNewUTF8: typeof allocateUTF8
+    stringToNewUTF8: (value: string) => number
     lengthBytesUTF8: typeof lengthBytesUTF8
     stringToUTF8: typeof stringToUTF8
     ENV: EnvironmentVariables
@@ -32,6 +32,13 @@ export default class LuaWasm {
                 }
             },
         })
+        try {
+            if (module.ccall('wasmoon_runtime_abi', 'number', [], []) !== 1) {
+                throw new Error('Unexpected runtime ABI')
+            }
+        } catch (error) {
+            throw new Error(`Incompatible Wasm binary: load the glue.wasm built with this CfxLua fork. ${String(error)}`, { cause: error })
+        }
         return new LuaWasm(module)
     }
 
@@ -47,8 +54,8 @@ export default class LuaWasm {
     public luaL_optlstring: (L: LuaState, arg: number, def: string | null, l: number | null) => string
     public luaL_checknumber: (L: LuaState, arg: number) => number
     public luaL_optnumber: (L: LuaState, arg: number, def: number) => number
-    public luaL_checkinteger: (L: LuaState, arg: number) => number
-    public luaL_optinteger: (L: LuaState, arg: number, def: number) => number
+    public luaL_checkinteger: (L: LuaState, arg: number) => bigint
+    public luaL_optinteger: (L: LuaState, arg: number, def: bigint) => bigint
     public luaL_checkstack: (L: LuaState, sz: number, msg: string | null) => void
     public luaL_checktype: (L: LuaState, arg: number, t: number) => void
     public luaL_checkany: (L: LuaState, arg: number) => void
@@ -71,7 +78,7 @@ export default class LuaWasm {
     ) => LuaReturn
     public luaL_loadstring: (L: LuaState, s: string | null) => LuaReturn
     public luaL_newstate: () => LuaState
-    public luaL_len: (L: LuaState, idx: number) => number
+    public luaL_len: (L: LuaState, idx: number) => bigint
     public luaL_addgsub: (b: number | null, s: string | null, p: string | null, r: string | null) => void
     public luaL_gsub: (L: LuaState, s: string | null, p: string | null, r: string | null) => string
     public luaL_setfuncs: (L: LuaState, l: number | null, nup: number) => void
@@ -91,6 +98,7 @@ export default class LuaWasm {
     public lua_close: (L: LuaState) => void
     public lua_newthread: (L: LuaState) => LuaState
     public lua_resetthread: (L: LuaState) => LuaReturn
+    public lua_closethread: (L: LuaState, from: LuaState | null) => LuaReturn
     public lua_atpanic: (L: LuaState, panicf: number) => number
     public lua_version: (L: LuaState) => number
     public lua_absindex: (L: LuaState, idx: number) => number
@@ -112,7 +120,7 @@ export default class LuaWasm {
     public lua_tointegerx: (L: LuaState, idx: number, isnum: number | null) => bigint
     public lua_toboolean: (L: LuaState, idx: number) => number
     public lua_tolstring: (L: LuaState, idx: number, len: number | null) => string
-    public lua_rawlen: (L: LuaState, idx: number) => number
+    public lua_rawlen: (L: LuaState, idx: number) => bigint
     public lua_tocfunction: (L: LuaState, idx: number) => number
     public lua_touserdata: (L: LuaState, idx: number) => number
     public lua_tothread: (L: LuaState, idx: number) => LuaState
@@ -249,6 +257,7 @@ export default class LuaWasm {
         this.lua_close = this.cwrap('lua_close', null, ['number'])
         this.lua_newthread = this.cwrap('lua_newthread', 'number', ['number'])
         this.lua_resetthread = this.cwrap('lua_resetthread', 'number', ['number'])
+        this.lua_closethread = this.cwrap('lua_closethread', 'number', ['number', 'number'])
         this.lua_atpanic = this.cwrap('lua_atpanic', 'number', ['number', 'number'])
         this.lua_version = this.cwrap('lua_version', 'number', ['number'])
         this.lua_absindex = this.cwrap('lua_absindex', 'number', ['number', 'number'])

@@ -9,6 +9,7 @@ import createPromiseType from './type-extensions/promise'
 import createProxyType from './type-extensions/proxy'
 import createTableType from './type-extensions/table'
 import createUserdataType from './type-extensions/userdata'
+import createVectorType from './type-extensions/vector'
 
 export default class LuaEngine {
     public global: Global
@@ -24,6 +25,9 @@ export default class LuaEngine {
         }: CreateEngineOptions = {},
     ) {
         this.global = new Global(this.cmodule, traceAllocations)
+
+        // Native values must be matched before generic JS proxies and tables.
+        this.global.registerTypeExtension(6, createVectorType(this.global))
 
         // Generic handlers - These may be required to be registered for additional types.
         this.global.registerTypeExtension(0, createTableType(this.global))
