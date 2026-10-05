@@ -51,14 +51,20 @@ jobs:
                       npm run build:wasm
                   fi
             - run: npm run build
+              id: bundle
             - run: npm test
             - run: npm run luatests
+              if: ${{ !cancelled() && steps.bundle.outcome == 'success' }}
             - name: Audit dependencies
+              if: ${{ !cancelled() && steps.bundle.outcome == 'success' }}
               run: npm audit
             - name: Check package contents
+              if: ${{ !cancelled() && steps.bundle.outcome == 'success' }}
               run: npm pack --dry-run
             - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              if: ${{ !cancelled() }}
               with:
                   name: wasmoon-node-${{ matrix.node-version }}-${{ matrix.build-mode }}
                   path: dist/
+                  if-no-files-found: ignore
                   retention-days: 7
