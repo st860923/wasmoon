@@ -140,8 +140,24 @@ describe('CfxLua runtime contract', () => {
         assert.deepEqual(await engine.doString('return msgpack.unpack(msgpack.pack(vector3(1, 2, 3)))'), LuaVector.vector3(1, 2, 3))
     })
 
-    it('uses the FiveM-compatible MessagePack unpack signature', async () => {
+    it('preserves the existing MessagePack.lua-compatible unpack signature', async () => {
         assert.equal(await engine.doString('return msgpack.unpack(msgpack.pack(42), "ignored", {})'), 42)
+    })
+
+    it('keeps MessagePack objects aligned when the memory pool expands', async () => {
+        assert.equal(
+            await engine.doString(`
+            local values = {}
+            for i = 1, 2000 do values[i] = {i, i + 0.5, vector3(i, 2, 3)} end
+            local result = msgpack.unpack(msgpack.pack(values))
+            for i = 1, 2000 do
+                assert(result[i][1] == i and result[i][2] == i + 0.5)
+                assert(result[i][3] == vector3(i, 2, 3))
+            end
+            return #result == 2000
+        `),
+            true,
+        )
     })
 
     it('preserves NUL bytes in Lua table keys', async () => {
@@ -195,9 +211,23 @@ describe('CfxLua runtime contract', () => {
     })
 
     it('handles malformed JSON and MessagePack without aborting the VM', async () => {
-        assert.equal(await engine.doString('return pcall(json.decode, "{")'), false)
+        // lua-rapidjson returns nil, error offset, error message; it does not throw.
+        assert.equal(
+            await engine.doString('local value, offset, err = json.decode("{"); return value == nil and offset == 1 and type(err) == "string"'),
+            true,
+        )
         assert.equal(await engine.doString('return pcall(msgpack.unpack, string.char(0xc1))'), false)
         assert.equal(await engine.doString('return 6 * 7'), 42)
+    })
+
+    it('retains the default-deny bytecode policy in publishable builds', async () => {
+        assert.equal(
+            await engine.doString(`
+            local fn, err = load(string.dump(function() return 42 end))
+            return fn == nil and string.find(err, "forbidden", 1, true) ~= nil
+        `),
+            true,
+        )
     })
 
     it('preserves signed 64-bit integers instead of silently rounding', async () => {

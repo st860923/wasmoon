@@ -11,7 +11,7 @@ export default defineConfig({
         sourcemap: true,
         minify: production,
     },
-    external: ['module'],
+    external: ['module', 'node:module'],
     define: {
         // Webpack workaround: https://github.com/webpack/webpack/issues/16878
         'import.meta': 'Object(import.meta)',
