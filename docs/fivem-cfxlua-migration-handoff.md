@@ -1,3 +1,5 @@
+> 2026-10-06 更新：此文件保留遷移背景；目前的向量橋接、二進位字串、64 位元整數與依賴版本請以 [CfxLua runtime audit](./cfxlua-audit.md) 為準。
+
 # FiveM CfxLua × Wasmoon 遷移 Handoff
 
 ## 目的與範圍

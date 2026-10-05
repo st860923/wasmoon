@@ -4,25 +4,37 @@ on:
     push:
         branches: [main]
 
+permissions:
+    contents: read
+
 jobs:
     publish:
         runs-on: ubuntu-latest
+        timeout-minutes: 30
 
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
                   submodules: recursive
-            - uses: mymindstorm/setup-emsdk@v14
+                  persist-credentials: false
+            - name: Read pinned Emscripten version
+              id: emsdk
+              run: echo "version=$(cat .emscripten-version)" >> "$GITHUB_OUTPUT"
+            - uses: emscripten-core/setup-emsdk@667eb33f24e84e7f362c16d8d7fff0629a73e15e # v15
+              with:
+                  version: ${{ steps.emsdk.outputs.version }}
             - name: Use Node.js 22.x
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
               with:
                   node-version: 22.x
+                  cache: npm
             - run: npm ci
             - run: npm run lint:nofix
             - run: npm run build:wasm
             - run: npm run build
             - run: npm test
             - run: npm run luatests
+            - run: npm audit
             - uses: JS-DevTools/npm-publish@v3
               with:
                   token: ${{ secrets.NPM_TOKEN }}

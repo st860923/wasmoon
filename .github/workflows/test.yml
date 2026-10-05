@@ -4,26 +4,67 @@ on:
     pull_request:
         branches: [main]
 
+permissions:
+    contents: read
+
+concurrency:
+    group: test-${{ github.event.pull_request.number }}
+    cancel-in-progress: true
+
 jobs:
     build:
         runs-on: ubuntu-latest
+        timeout-minutes: 30
 
         strategy:
+            fail-fast: false
             matrix:
-                node-version: [18, 20, 22]
+                node-version: [22, 24]
+                build-mode: [release]
+                include:
+                    - node-version: 22
+                      build-mode: dev
 
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
                   submodules: recursive
-            - uses: mymindstorm/setup-emsdk@v12
+                  persist-credentials: false
+            - name: Read pinned Emscripten version
+              id: emsdk
+              run: echo "version=$(cat .emscripten-version)" >> "$GITHUB_OUTPUT"
+            - uses: emscripten-core/setup-emsdk@667eb33f24e84e7f362c16d8d7fff0629a73e15e # v15
+              with:
+                  version: ${{ steps.emsdk.outputs.version }}
             - name: Use Node.js ${{ matrix.node-version }}
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
               with:
                   node-version: ${{ matrix.node-version }}
+                  cache: npm
             - run: npm ci
             - run: npm run lint:nofix
-            - run: npm run build:wasm
+            - name: Build Wasm
+              run: |
+                  if [ '${{ matrix.build-mode }}' = dev ]; then
+                      npm run build:wasm:dev
+                  else
+                      npm run build:wasm
+                  fi
             - run: npm run build
+              id: bundle
             - run: npm test
             - run: npm run luatests
+              if: ${{ !cancelled() && steps.bundle.outcome == 'success' }}
+            - name: Audit dependencies
+              if: ${{ !cancelled() && steps.bundle.outcome == 'success' }}
+              run: npm audit
+            - name: Check package contents
+              if: ${{ !cancelled() && steps.bundle.outcome == 'success' }}
+              run: npm pack --dry-run
+            - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              if: ${{ !cancelled() }}
+              with:
+                  name: wasmoon-node-${{ matrix.node-version }}-${{ matrix.build-mode }}
+                  path: dist/
+                  if-no-files-found: ignore
+                  retention-days: 7

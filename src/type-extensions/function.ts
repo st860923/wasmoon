@@ -139,8 +139,11 @@ class FunctionTypeExtension extends TypeExtension<FunctionType, FunctionDecorati
         this.thread.lua.module.removeFunction(this.functionWrapper)
         // Doesn't destroy the Lua thread, just function pointers.
         this.callbackContext.close()
-        // Destroy the Lua thread
-        this.callbackContext.lua.luaL_unref(this.callbackContext.address, LUA_REGISTRYINDEX, this.callbackContextIndex)
+        // Global.close runs extension cleanup after lua_close, which already freed
+        // every registry reference. Never touch the destroyed callback state.
+        if (!this.thread.isClosed()) {
+            this.thread.lua.luaL_unref(this.thread.address, LUA_REGISTRYINDEX, this.callbackContextIndex)
+        }
     }
 
     public isType(_thread: Thread, _index: number, type: LuaType): boolean {

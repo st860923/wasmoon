@@ -1,5 +1,3 @@
-// A rollup plugin will resolve this to the current version on package.json
-import version from 'package-version'
 import LuaEngine from './engine'
 import LuaWasm from './luawasm'
 import { CreateEngineOptions, EnvironmentVariables } from './types'
@@ -12,20 +10,12 @@ export default class LuaFactory {
 
     /**
      * Constructs a new LuaFactory instance.
-     * @param [customWasmUri] - Custom URI for the Lua WebAssembly module.
+     * @param [customWasmUri] - Custom URI for the matching CfxLua WebAssembly module.
      * @param [environmentVariables] - Environment variables for the Lua engine.
      */
     public constructor(customWasmUri?: string, environmentVariables?: EnvironmentVariables) {
-        if (customWasmUri === undefined) {
-            const isBrowser =
-                (typeof window === 'object' && typeof window.document !== 'undefined') ||
-                (typeof self === 'object' && self?.constructor?.name === 'DedicatedWorkerGlobalScope')
-
-            if (isBrowser) {
-                customWasmUri = `https://unpkg.com/wasmoon@${version}/dist/glue.wasm`
-            }
-        }
-
+        // Resolve the Wasm shipped beside the generated glue unless explicitly overridden.
+        // Upstream Wasmoon's CDN binary has a different ABI from this CfxLua fork.
         this.luaWasmPromise = LuaWasm.initialize(customWasmUri, environmentVariables)
     }
 
@@ -77,7 +67,7 @@ export default class LuaFactory {
     /**
      * Creates a Lua engine with the specified options.
      * @param [options] - Configuration options for the Lua engine.
-     * @returns - A Promise that resolves to a new LuaEngine instance.
+     * @returns - A Promise that resolves to the new LuaEngine instance.
      */
     public async createEngine(options: CreateEngineOptions = {}): Promise<LuaEngine> {
         return new LuaEngine(await this.getLuaModule(), options)

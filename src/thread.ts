@@ -23,6 +23,9 @@ export interface OrderedExtension {
 
 // When the debug count hook is set, call it every X instructions.
 const INSTRUCTION_HOOK_COUNT = 1000
+const textEncoder = new TextEncoder()
+// A leading UTF-8 BOM is data in a Lua string, not a transport marker.
+const textDecoder = new TextDecoder('utf-8', { ignoreBOM: true })
 
 export default class Thread {
     public readonly address: LuaState
@@ -49,7 +52,7 @@ export default class Thread {
     }
 
     public resetThread(): void {
-        this.assertOk(this.lua.lua_resetthread(this.address))
+        this.assertOk(this.lua.lua_closethread(this.address, null))
     }
 
     public loadString(luaCode: string, name?: string): void {
@@ -204,19 +207,29 @@ export default class Thread {
                 this.lua.lua_pushnil(this.address)
                 break
             case 'number':
-                if (Number.isInteger(target)) {
+                if (Number.isSafeInteger(target)) {
                     this.lua.lua_pushinteger(this.address, BigInt(target))
                 } else {
                     this.lua.lua_pushnumber(this.address, target)
                 }
                 break
+            case 'bigint':
+                if (BigInt.asIntN(64, target) !== target) {
+                    throw new RangeError('Lua integers must fit in signed 64 bits')
+                }
+                this.lua.lua_pushinteger(this.address, target)
+                break
             case 'string':
-                this.lua.lua_pushstring(this.address, target)
+                this.pushBytes(textEncoder.encode(target))
                 break
             case 'boolean':
                 this.lua.lua_pushboolean(this.address, target ? 1 : 0)
                 break
             default:
+                if (target instanceof Uint8Array) {
+                    this.pushBytes(target)
+                    break
+                }
                 if (this.typeExtensions.find((wrapper) => wrapper.extension.pushValue(this, decoratedValue, userdata))) {
                     break
                 }
@@ -233,6 +246,51 @@ export default class Thread {
 
         if (this.getTop() !== startTop + 1) {
             throw new Error(`pushValue expected stack size ${startTop + 1}, got ${this.getTop()}`)
+        }
+    }
+
+    /** Push a binary Lua string without UTF-8 conversion, including embedded zero bytes. */
+    public pushBytes(value: Uint8Array): void {
+        if (!(value instanceof Uint8Array)) {
+            throw new TypeError('Expected Uint8Array')
+        }
+        // Copy first: the caller may have passed a view into memory that malloc can grow.
+        const bytes = new Uint8Array(value)
+        const module = this.lua.module
+        const pointer = module._malloc(Math.max(1, bytes.byteLength))
+        if (!pointer) {
+            throw new Error('Could not allocate string transfer buffer')
+        }
+        try {
+            module.HEAPU8.set(bytes, pointer)
+            module.ccall('lua_pushlstring', 'number', ['number', 'number', 'number'], [this.address, pointer, bytes.byteLength])
+        } finally {
+            module._free(pointer)
+        }
+    }
+
+    /** Copy a Lua string as bytes. Ordinary getValue() decodes text, not MessagePack. */
+    public getBytes(index: number): Uint8Array {
+        index = this.lua.lua_absindex(this.address, index)
+        if (this.lua.lua_type(this.address, index) !== LuaType.String) {
+            throw new TypeError('Expected a Lua string')
+        }
+        const module = this.lua.module
+        const lengthPointer = module._malloc(PointerSize)
+        if (!lengthPointer) {
+            throw new Error('Could not allocate string length buffer')
+        }
+        try {
+            const pointer = module.ccall(
+                'lua_tolstring',
+                'number',
+                ['number', 'number', 'number'],
+                [this.address, index, lengthPointer],
+            ) as number
+            const length = module.getValue(lengthPointer, 'i32') >>> 0
+            return module.HEAPU8.slice(pointer, pointer + length)
+        } finally {
+            module._free(lengthPointer)
         }
     }
 
@@ -279,9 +337,14 @@ export default class Thread {
             case LuaType.Nil:
                 return null
             case LuaType.Number:
+                if (this.lua.lua_isinteger(this.address, index)) {
+                    const integer = this.lua.lua_tointegerx(this.address, index, null)
+                    const number = Number(integer)
+                    return Number.isSafeInteger(number) ? number : integer
+                }
                 return this.lua.lua_tonumberx(this.address, index, null)
             case LuaType.String:
-                return this.lua.lua_tolstring(this.address, index, null)
+                return textDecoder.decode(this.getBytes(index))
             case LuaType.Boolean:
                 return Boolean(this.lua.lua_toboolean(this.address, index))
             case LuaType.Thread:
@@ -352,10 +415,13 @@ export default class Thread {
     }
 
     public indexToString(index: number): string {
-        const str = this.lua.luaL_tolstring(this.address, index, null)
-        // Pops the string pushed by luaL_tolstring
-        this.pop()
-        return str
+        this.lua.module.ccall('luaL_tolstring', 'number', ['number', 'number', 'number'], [this.address, index, 0])
+        try {
+            return textDecoder.decode(this.getBytes(-1))
+        } finally {
+            // Pop the string pushed by luaL_tolstring, including on conversion errors.
+            this.pop()
+        }
     }
 
     public dumpStack(log = console.log): void {

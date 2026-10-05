@@ -1,6 +1,5 @@
+import { copyFile, mkdir } from 'node:fs/promises'
 import { defineConfig } from 'rolldown'
-import copy from 'rollup-plugin-copy'
-import pkg from './package.json' with { type: 'json' }
 
 const production = !process.env.ROLLUP_WATCH
 
@@ -12,27 +11,18 @@ export default defineConfig({
         sourcemap: true,
         minify: production,
     },
-    external: ['module'],
+    external: ['module', 'node:module'],
     define: {
         // Webpack workaround: https://github.com/webpack/webpack/issues/16878
         'import.meta': 'Object(import.meta)',
     },
     plugins: [
         {
-            name: 'package-version',
-            resolveId(source) {
-                if (source === 'package-version') {
-                    return 'package-version'
-                }
-            },
-            load(id) {
-                if (id === 'package-version') {
-                    return `export default '${pkg.version}'`
-                }
+            name: 'copy-wasm',
+            async writeBundle() {
+                await mkdir('dist', { recursive: true })
+                await copyFile('build/glue.wasm', 'dist/glue.wasm')
             },
         },
-        copy({
-            targets: [{ src: 'build/glue.wasm', dest: 'dist' }],
-        }),
     ],
 })
