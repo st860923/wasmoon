@@ -1,14 +1,36 @@
-name: CI
+name: NPM package
 
 on:
-    push:
+    pull_request:
         branches: [main]
+        paths:
+            - .github/workflows/publish.yml
+            - scripts/npm-release-preflight.sh
+            - test/npm-release-preflight.sh
+            - package.json
+            - package-lock.json
+    workflow_dispatch:
+        inputs:
+            dry_run:
+                description: Validate the package without publishing to npm
+                type: boolean
+                required: true
+                default: true
+            package_spec:
+                description: 'For a real release, confirm the exact name@version from package.json'
+                type: string
+                required: false
+                default: ''
 
 permissions:
     contents: read
 
+concurrency:
+    group: npm-package-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: false
+
 jobs:
-    publish:
+    package:
         runs-on: ubuntu-latest
         timeout-minutes: 30
 
@@ -17,17 +39,27 @@ jobs:
               with:
                   submodules: recursive
                   persist-credentials: false
+            - name: Use Node.js 22.x
+              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              with:
+                  node-version: 22.x
+                  registry-url: https://registry.npmjs.org
+                  package-manager-cache: false
+            - name: Test release guards
+              run: bash test/npm-release-preflight.sh
+            - name: Validate release request
+              id: release
+              env:
+                  DRY_RUN: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run }}
+                  EXPECTED_PACKAGE: ${{ inputs.package_spec }}
+                  NODE_AUTH_TOKEN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == false && secrets.NPM_TOKEN || '' }}
+              run: bash scripts/npm-release-preflight.sh
             - name: Read pinned Emscripten version
               id: emsdk
               run: echo "version=$(cat .emscripten-version)" >> "$GITHUB_OUTPUT"
             - uses: emscripten-core/setup-emsdk@667eb33f24e84e7f362c16d8d7fff0629a73e15e # v15
               with:
                   version: ${{ steps.emsdk.outputs.version }}
-            - name: Use Node.js 22.x
-              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-              with:
-                  node-version: 22.x
-                  cache: npm
             - run: npm ci
             - run: npm run lint:nofix
             - run: npm run build:wasm
@@ -35,6 +67,32 @@ jobs:
             - run: npm test
             - run: npm run luatests
             - run: npm audit
-            - uses: JS-DevTools/npm-publish@v3
+            - name: Pack the validated production build
+              run: |
+                  mkdir -p artifacts
+                  npm pack --ignore-scripts --pack-destination artifacts
+            - name: Dry-run the exact release tarball without credentials
+              run: npm publish ./artifacts/*.tgz --dry-run --ignore-scripts --access public
+              env:
+                  NODE_AUTH_TOKEN: ''
+            - name: Retain the validated package
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
-                  token: ${{ secrets.NPM_TOKEN }}
+                  name: npm-package-${{ github.run_id }}
+                  path: artifacts/*.tgz
+                  if-no-files-found: error
+                  retention-days: 7
+            - name: Publish the validated tarball to npm
+              if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == false && steps.release.outputs.publish == 'true' }}
+              run: npm publish ./artifacts/*.tgz --ignore-scripts --access public
+              env:
+                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+            - name: Record publication status
+              env:
+                  PUBLISH: ${{ steps.release.outputs.publish }}
+              run: |
+                  if [ "$PUBLISH" = true ]; then
+                      echo 'Package published to npm.' >> "$GITHUB_STEP_SUMMARY"
+                  else
+                      echo 'Package validated and retained as an artifact. Nothing was published to npm; NPM_TOKEN is not required for this run.' >> "$GITHUB_STEP_SUMMARY"
+                  fi
