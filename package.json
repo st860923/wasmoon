@@ -58,6 +58,10 @@
         "typescript": "5.9.3",
         "typescript-eslint": "8.71.1"
     },
+    "overrides": {
+        "glob": "14.0.3",
+        "minimatch": "11.0.3"
+    },
     "dependencies": {
         "@types/emscripten": "1.41.6"
     }
