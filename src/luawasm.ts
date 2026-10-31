@@ -443,7 +443,11 @@ export default class LuaWasm {
         returnType: Emscripten.JSType | null,
         argTypes: Array<Emscripten.JSType | 'string|number'>,
     ): (...args: any[]) => any {
-        // optimization for common case
+        // Numeric/pointer calls need no ccall conversion, including native i64 BigInts.
+        if ((returnType === null || returnType === 'number') && argTypes.every((type) => type === 'number')) {
+            return (this.module as unknown as Record<string, (...args: any[]) => any>)[`_${name}`]
+        }
+
         const hasStringOrNumber = argTypes.some((argType) => argType === 'string|number')
         if (!hasStringOrNumber) {
             return (...args: any[]) =>

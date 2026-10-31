@@ -108,13 +108,7 @@ export default class LuaEngine {
         try {
             loader(thread)
             const result = await thread.run(0)
-            if (result.length > 0) {
-                // The shenanigans here are to return the first result value on the stack.
-                // Say there's 2 values at stack indexes 1 and 2. Then top is 2, result.length is 2.
-                // That's why there's a + 1 sitting at the end.
-                return thread.getValue(thread.getTop() - result.length + 1)
-            }
-            return undefined
+            return result[0]
         } finally {
             // Pop the read on success or failure
             this.global.remove(threadIndex)

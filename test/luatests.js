@@ -37,6 +37,8 @@ for await (const file of walk(filePath)) {
 
 const lua = new LuaEngine(luamodule)
 try {
+    module.ccall('wasmoon_test_install_coroutines', null, ['number'], [lua.global.address])
+    lua.doStringSync(await readFile(new URL('./coroutine-boundaries.lua', import.meta.url), 'utf8'))
     luamodule.lua_warning(lua.global.address, '@on', 0)
     lua.global.set('arg', ['lua', 'all.lua'])
     lua.global.set('_port', true)

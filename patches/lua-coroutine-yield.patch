@@ -1,0 +1,114 @@
+--- a/lua/ldo.h
++++ b/lua/ldo.h
+@@ -60,6 +60,8 @@
+ /* type of protected functions, to be ran by 'runprotected' */
+ typedef void (*Pfunc) (lua_State *L, void *ud);
+
++LUAI_FUNC int luaB_yield (lua_State *L);
++
+ LUAI_FUNC l_noret luaD_errerr (lua_State *L);
+ LUAI_FUNC void luaD_seterrorobj (lua_State *L, int errcode, StkId oldtop);
+ LUAI_FUNC int luaD_protectedparser (lua_State *L, ZIO *z, const char *name,
+--- a/lua/lcorolib.c
++++ b/lua/lcorolib.c
+@@ -14,6 +14,7 @@
+
+ #include "lua.h"
+
++#include "ldo.h"
+ #include "lauxlib.h"
+ #include "lualib.h"
+
+@@ -109,7 +110,7 @@
+ }
+
+
+-static int luaB_yield (lua_State *L) {
++int luaB_yield (lua_State *L) {
+   return lua_yield(L, lua_gettop(L));
+ }
+
+--- a/lua/ldo.c
++++ b/lua/ldo.c
+@@ -96,7 +96,11 @@
+
+
+ /* chain list of long jump buffers */
++static void resume (lua_State *L, void *ud);
++static void unroll (lua_State *L, void *ud);
++
+ struct lua_longjmp {
++  l_uint32 yieldbase;  /* C depth allowed to return directly to resume/unroll */
+   struct lua_longjmp *previous;
+   luai_jmpbuf b;
+   volatile int status;  /* error code */
+@@ -223,6 +227,7 @@
+   l_uint32 oldnCcalls = L->nCcalls;
+   struct lua_longjmp lj;
+   lj.status = LUA_OK;
++  lj.yieldbase = (f == resume || f == unroll) ? oldnCcalls : 0;
+   lj.previous = L->errorJmp;  /* chain new error handler */
+   L->errorJmp = &lj;
+ #if defined(__cplusplus) && defined(LUA_CPP_EXCEPTIONS)
+@@ -694,6 +699,19 @@
+     int narg = cast_int(L->top.p - func) - 1;
+     luaD_hook(L, LUA_HOOKCALL, -1, 1, narg);
+   }
++  /* Only the built-in yield may return through this protocol. A nested C
++     call, protected handler or hook must still unwind through exceptions. */
++  if (f == luaB_yield && !L->hookmask && yieldable(L) &&
++      L->errorJmp && L->errorJmp->yieldbase != 0 &&
++      L->nCcalls == L->errorJmp->yieldbase) {
++    n = cast_int(L->top.p - ci->func.p) - 1;
++    luai_userstateyield(L, n);
++    L->status = LUA_YIELD;
++    ci->u2.nyield = n;
++    ci->u.c.k = NULL;
++    L->errorJmp->status = LUA_YIELD;
++    return 0;  /* leave the C frame intact for the next resume */
++  }
+   lua_unlock(L);
+   n = (*f)(L);  /* do the actual call */
+   lua_lock(L);
+@@ -911,6 +929,8 @@
+     else {  /* Lua function */
+       luaV_finishOp(L);  /* finish interrupted instruction */
+       luaV_execute(L, ci);  /* execute down to higher C 'boundary' */
++      if (L->status == LUA_YIELD)
++        return;
+     }
+   }
+ }
+@@ -967,6 +987,8 @@
+       ci->u.l.savedpc--;
+       L->top.p = firstArg;  /* discard arguments */
+       luaV_execute(L, ci);  /* just continue running Lua code */
++      if (L->status == LUA_YIELD)
++        return;
+     }
+     else {  /* 'common' yield */
+       if (ci->u.c.k != NULL) {  /* does it have a continuation function? */
+--- a/lua/lvm.c
++++ b/lua/lvm.c
+@@ -1772,8 +1772,11 @@
+           L->top.p = ra + b;  /* top signals number of arguments */
+         /* else previous instruction set top */
+         savepc(L);  /* in case of errors */
+-        if ((newci = luaD_precall(L, ra, nresults)) == NULL)
++        if ((newci = luaD_precall(L, ra, nresults)) == NULL) {
++          if (L->status == LUA_YIELD)
++            return;
+           updatetrap(ci);  /* C call; nothing else to be done */
++        }
+         else {  /* Lua call: run function in this same C frame */
+           ci = newci;
+           goto startfunc;
+@@ -1800,6 +1803,8 @@
+         if ((n = luaD_pretailcall(L, ci, ra, b, delta)) < 0)  /* Lua function? */
+           goto startfunc;  /* execute the callee */
+         else {  /* C function? */
++          if (L->status == LUA_YIELD)
++            return;
+           ci->func.p -= delta;  /* restore 'func' (if vararg) */
+           luaD_poscall(L, ci, n);  /* finish caller */
+           updatetrap(ci);  /* 'luaD_poscall' can change hooks */

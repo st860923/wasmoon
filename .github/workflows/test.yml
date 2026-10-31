@@ -36,6 +36,8 @@ jobs:
                 include:
                     - node-version: 22
                       build-mode: dev
+                    - node-version: 24
+                      build-mode: pgo-simd
 
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -59,6 +61,16 @@ jobs:
               run: |
                   if [ '${{ matrix.build-mode }}' = dev ]; then
                       npm run build:wasm:dev
+                  elif [ '${{ matrix.build-mode }}' = pgo-simd ]; then
+                      WASMOON_PGO=generate bash build.sh
+                      npm run build
+                      profile_dir=$(mktemp -d ./build/profiles.XXXXXX)
+                      WASMOON_PROFILE_DIR="$profile_dir" node --import ./bench/collect-profile.js \
+                          ./node_modules/mocha/bin/mocha.js --require ./test/boot.js 'test/*.test.js'
+                      WASMOON_PROFILE_DIR="$profile_dir" node --import ./bench/collect-profile.js bench/runtime.js
+                      "$EMSDK/upstream/bin/llvm-profdata" merge "$profile_dir" -o build/runtime.profdata
+                      "$EMSDK/upstream/bin/llvm-profdata" show build/runtime.profdata
+                      WASMOON_PGO=use WASMOON_PROFILE=build/runtime.profdata WASMOON_SIMD=1 bash build.sh
                   else
                       npm run build:wasm
                   fi
@@ -67,6 +79,10 @@ jobs:
             - run: npm test
             - run: npm run luatests
               if: ${{ !cancelled() && steps.bundle.outcome == 'success' }}
+              env:
+                  WASMOON_PGO: ${{ matrix.build-mode == 'pgo-simd' && 'use' || 'off' }}
+                  WASMOON_PROFILE: build/runtime.profdata
+                  WASMOON_SIMD: ${{ matrix.build-mode == 'pgo-simd' && '1' || '0' }}
             - name: Audit dependencies
               if: ${{ !cancelled() && steps.bundle.outcome == 'success' }}
               run: npm audit
