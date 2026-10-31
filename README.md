@@ -85,6 +85,10 @@ warms up once and reports the median of five samples in milliseconds. Compare
 matching JS/Wasm builds in alternating fresh processes, then measure your actual
 application; bridge improvements do not imply the same gain in pure Lua code.
 
+See [native optimization experiments](bench/README.md) for PGO/FDO training,
+SIMD auto-vectorization and LTO builds. These options are opt-in and require
+application-level measurements before adoption.
+
 Because of wasm, wasmoon will run Lua code much faster than fengari, but if you are going to interop a lot between JS and Lua, this may be not be true anymore, you probably should test on you specific use case to take the prove.
 
 This is the results running a [heap sort code](https://github.com/ceifa/wasmoon/blob/main/bench/heapsort.lua) in a list of 2k numbers 10x(less is better):

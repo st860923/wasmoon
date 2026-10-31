@@ -13,9 +13,50 @@ case "$mode" in
         # The trusted upstream suite needs bytecode loading. Never put this
         # test-only binary in build/glue.wasm or dist/, which are publishable.
         output_dir="./build/lua-tests"
-        test_source="./test/bytecode-policy.cpp"
+        test_source="./test/bytecode-policy.cpp ./test/coroutine-boundaries.cpp"
         ;;
     *) echo "Usage: $0 [release|dev|lua-tests]" >&2; exit 2 ;;
+esac
+optimization_flags=()
+profile_exports=""
+case "${WASMOON_PGO:-off}" in
+    off) ;;
+    generate)
+        optimization_flags+=(-fprofile-instr-generate)
+        profile_exports="'___llvm_profile_get_size_for_buffer', '___llvm_profile_write_buffer',"
+        # The pinned SDK ships a v10 profiling runtime with a v11 compiler.
+        python3 ./tools/prepare-profile-runtime.py
+        profile_objects=()
+        for name in InstrProfiling InstrProfilingInternal InstrProfilingBuffer \
+            InstrProfilingMerge InstrProfilingMergeFile InstrProfilingNameVar \
+            InstrProfilingVersionVar InstrProfilingWriter InstrProfilingPlatformLinux; do
+            source="./build/profile-runtime/$name.c"
+            emcc -O2 -fno-builtin -DNDEBUG -DCOMPILER_RT_PROFILE_BAREMETAL=1 -I./build/profile-runtime \
+                -c "$source" -o "$source.o"
+            profile_objects+=("$source.o")
+        done
+        emcc -O2 -c ./tools/profile-runtime.c -o ./build/profile-runtime/anchor.o
+        rm -f ./build/profile-runtime/libprofile-buffer.a
+        emar rcs ./build/profile-runtime/libprofile-buffer.a "${profile_objects[@]}" ./build/profile-runtime/anchor.o
+        optimization_flags+=(./build/profile-runtime/libprofile-buffer.a)
+        ;;
+    use)
+        : "${WASMOON_PROFILE:?Set WASMOON_PROFILE to a merged .profdata file}"
+        test -s "$WASMOON_PROFILE" || { echo "Missing profile: $WASMOON_PROFILE" >&2; exit 2; }
+        optimization_flags+=("-fprofile-instr-use=$WASMOON_PROFILE" -Werror=profile-instr-out-of-date)
+        ;;
+    *) echo "WASMOON_PGO must be off, generate, or use" >&2; exit 2 ;;
+esac
+case "${WASMOON_SIMD:-0}" in
+    0) ;;
+    1) optimization_flags+=(-msimd128) ;;
+    *) echo "WASMOON_SIMD must be 0 or 1" >&2; exit 2 ;;
+esac
+case "${WASMOON_LTO:-0}" in
+    0) ;;
+    # Emscripten 6.0.10 does not forward Wasm EH to LTO code generation.
+    1) optimization_flags+=(-flto -Wl,-mllvm,-wasm-enable-eh) ;;
+    *) echo "WASMOON_LTO must be 0 or 1" >&2; exit 2 ;;
 esac
 mkdir -p "$output_dir" ./build/include/msgpack ./build/native
 
@@ -25,13 +66,17 @@ cp -R ./vendor/lua-cmsgpack/src ./build/native/lua-cmsgpack
 cp -R ./vendor/msgpack-c/include ./build/native/msgpack-include
 patch --batch --fuzz=0 -p1 -d ./build/native < ./patches/msgpack-wasm32.patch
 
+mkdir -p ./build/native/lua
+cp ./lua/*.[ch] ./build/native/lua/
+patch --batch --fuzz=0 -p1 -d ./build/native < ./patches/lua-coroutine-yield.patch
+
 sed -e 's/@MSGPACK_ENDIAN_BIG_BYTE@/0/g' -e 's/@MSGPACK_ENDIAN_LITTLE_BYTE@/1/g' \
     ./vendor/msgpack-c/cmake/sysdep.h.in > ./build/include/msgpack/sysdep.h
 sed -e 's/@MSGPACK_ENDIAN_BIG_BYTE@/0/g' -e 's/@MSGPACK_ENDIAN_LITTLE_BYTE@/1/g' \
     ./vendor/msgpack-c/cmake/pack_template.h.in > ./build/include/msgpack/pack_template.h
 
 LUA_SRC="
-    ./lua/onelua.c
+    ./build/native/lua/onelua.c
     ./lua-packages.cpp
     ./lua-vector.cpp
     ./build/native/lua-cmsgpack/lua_cmsgpack.c
@@ -48,7 +93,9 @@ em++ \
     -x c++ \
     -std=c++14 \
     -fwasm-exceptions \
+    "${optimization_flags[@]}" \
     -include ./lua-c-api.hpp \
+    -I./build/native/lua \
     -I./lua \
     -I./lua/libs/glm \
     -I./lua/libs/glm-binding \
@@ -59,6 +106,7 @@ em++ \
     -I./build/include \
     -I./build/include/msgpack \
     -DMAKE_LIB \
+    -DLUA_USE_JUMPTABLE=0 \
     -DLUA_COMPAT_5_3 \
     -DLUA_C99_MATHLIB \
     -DGRIT_POWER_COMPOUND \
@@ -103,6 +151,7 @@ em++ \
     -s MALLOC=emmalloc \
     -s STACK_SIZE=1MB \
     -s EXPORTED_FUNCTIONS="[
+        $profile_exports
         '_malloc', '_free', '_realloc',
         '_luaL_checkversion_', '_luaL_getmetafield', '_luaL_callmeta',
         '_luaL_tolstring', '_luaL_argerror', '_luaL_typeerror',

@@ -55,6 +55,19 @@ describe('CfxLua runtime contract', () => {
         assert.deepEqual(await engine.doString('return vector2(0.1, -0.2)'), LuaVector.vector2(0.1, -0.2))
     })
 
+    it('preserves vector NaN, infinities, signed zero and float32 rounding', async () => {
+        assert.equal(
+            await engine.doString(`
+            local v = vector4(0/0, -0.0, math.huge, -math.huge)
+            local rounded = vector3(16777216, -16777216, 1) + vector3(1, 1, 1)
+            return v.x ~= v.x and 1/v.y == -math.huge
+                and v.z == math.huge and v.w == -math.huge
+                and rounded == vector3(16777216, -16777215, 2)
+        `),
+            true,
+        )
+    })
+
     it('does not depend on mutable Lua global constructors or leak stack slots', async () => {
         await engine.doString('vector3 = nil')
         const top = engine.global.getTop()
